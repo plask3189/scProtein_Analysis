@@ -27,13 +27,7 @@ if(comparing_cohorts){ # if two different groups (like BRAF samples vs other AML
   sce_save_name <- paste0(run_name, "sce_subset")
   base_variant_output_list_save_name <- paste0(run_name, "_base_variant_output_list")
   cat(magenta("Comparing two cohorts: BRAF samples vs other AML samples \n"))
-  sample_files_group1 <-c("BRAF/M7456braf.dna+protein.h5",
-                          "BRAF/M1912braf.dna+protein.h5", 
-                          "BRAF/M0292braf.dna+protein.h5",
-                          "BRAF/2459_Braf.dna+protein.h5", #"BRAF/M0626braf.dna+protein.h5", "BRAF/6232_braf.dna+protein.h5",
-                          "BRAF/4629_braf.dna+protein.h5",
-                          "BRAF/A5330braf.dna+protein.h5",
-                          "BRAF/A0634braf.dna+protein.h5")
+  sample_files_group1 <- Sys.glob("BRAF/*.h5")
   
   sample_files_group2 = c("./data/A0290.dna+protein.h5", # TET2, NPM1, NRAS
                           "./data/A1107.dna+protein.h5", # TET2, NPM1, NRAS
@@ -71,13 +65,7 @@ if(comparing_cohorts){ # if two different groups (like BRAF samples vs other AML
   base_variant_output_list_save_name <- paste0(run_name, "base_variant_output_list")
   
 
-  sample_files_group1 <-c("BRAF/M7456braf.dna+protein.h5",
-                          "BRAF/M1912braf.dna+protein.h5", 
-                          "BRAF/M0292braf.dna+protein.h5",
-                          "BRAF/2459_Braf.dna+protein.h5", #"BRAF/M0626braf.dna+protein.h5", "BRAF/6232_braf.dna+protein.h5",
-                          "BRAF/4629_braf.dna+protein.h5",
-                          "BRAF/A5330braf.dna+protein.h5",
-                          "BRAF/A0634braf.dna+protein.h5")
+  sample_files_group1 <-  Sys.glob("BRAF/*.h5")
   for (sample_file in sample_files_group1){
     #sample_file <- "BRAF/M7456braf.dna+protein.h5"
     base_variant_output_list<-variant_ID(file=sample_file,panel="Myeloid",
