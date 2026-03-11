@@ -1,7 +1,9 @@
 # scProtein_Analysis
 
-R code for single-cell multiomic analysis of DNA variants and surface protein expression from Mission Bio Tapestri data. Generates Figure 2: Genotype-immunophenotype relationships in BRAF-mutant AML clones and Supp. Figure 1.  Uses functions from: 
-https://github.com/bowmanr/scDNA 
+Single-cell multiomic analysis of DNA variants and surface protein expression from Mission Bio Tapestri data. Generates Figure 2: Genotype-immunophenotype relationships in BRAF-mutant AML clones and Supp. Figure 1.  
+
+Uses functions and is significantly derived from:  https://github.com/bowmanr/scDNA 
+
 scDNA: Single Cell DNA analysis software toolkit for subclonality discovery and assessment Michael Bowman, Shreeya Gounder, Varsha Singh, Olga Shestova, Troy Robinson, Amy Zhang, Anushka Gandhi, Roopsha Bandopadhyay, Sheng F. Cai, Ross L. Levine, Saar I. Gill, Linde A. Miles, Robert L. Bowman bioRxiv 2025.12.19.694255; doi: https://doi.org/10.64898/2025.12.19.694255
 
 
