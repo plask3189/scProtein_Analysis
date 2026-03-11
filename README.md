@@ -13,3 +13,9 @@ Processes `.h5` files from the Tapestri platform and performs:
 2. **Protein normalization** — Applies DSB (Denoised and Scaled by Background) and CLR normalization to antibody-derived tag (ADT) counts, using empty droplets as a background reference.
 3. **Clustering** — Builds a Seurat object from normalized protein data and variant metadata. Performs dimensionality reduction and clustering
 4. **Visualization** — Generates UMAPs, violin plots, heatmaps, and significance analysis.
+
+
+![Figure 2](figs/fig_2.png)
+
+![Supplementary Figure 1](figs/supp_fig_1.png)
+
