@@ -1,5 +1,4 @@
 rename_cells_with_group_and_sample_identifier<- function(sample_name, group_identifier, sce){
-  # like from this "ACAACCTAGCTTACTAG" to this "A0386_2_AACAACCTAGCTTACTAG"
   sce@metadata[["sample_name"]]<-sample_name 
   sce@metadata[["group"]]<-group_identifier 
   new_names <- paste(sample_name, colnames(sce), sep = "_")
@@ -100,7 +99,7 @@ process_sces<- function(sample_files, group_identifier = 0, path_to_save_variant
   )
   sce_list <- vector("list", length(sample_files)) # Pre-allocate memory
   
-  for(sample_file in sample_files){  #sample_file<- "BRAF/A0634braf.dna+protein.h5"
+  for(sample_file in sample_files){  
     sample_name <- sub("\\..*", "", basename(sample_file)) 
     cat(blue("------ Creating sce object for", sample_name, "------\n"))
     if (length(base_variant_output_list)<1){
@@ -181,13 +180,7 @@ process_sces<- function(sample_files, group_identifier = 0, path_to_save_variant
   head(sce_list)
   sce_list <- Filter(Negate(is.null), sce_list)
   return(sce_list)
-}#----------------------------------------------------------------------------------------------------
-# sample_files <-c("BRAF/A0634braf.dna+protein.h5", "./data/A0290.dna+protein.h5")
-# for (obj in sce_list){
-#   cat(obj@metadata[["sample_name"]], "\n")
-#   cat(unique(rownames(obj)), "\n")
-#   cat(length(unique(rownames(obj))), "\n")
-# }
+}
 
 
 save_variant_data_pdf_used_in_protein_processing <- function(variants_of_interest, sample_name, path_to_save_variant_data) {

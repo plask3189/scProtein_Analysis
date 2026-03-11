@@ -19,7 +19,7 @@ load_libraries_2<- function(){
   #source("R/protein_kp/plot_protein.R") 
   #source("R/protein_kp/FeaturePlotKP.R", echo=TRUE)
   library(scMerge)
-  source("R/protein_kp/protein_normalization.R")
-  source("R/protein_kp/get_cell_membership_faster.R")
-  source("R/protein_kp/droplet_analysis.R")
+  source("src/protein_normalization.R")
+  source("src/get_cell_membership_faster.R")
+  source("src/droplet_analysis.R")
 }

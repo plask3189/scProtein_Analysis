@@ -10,10 +10,10 @@ library(dplyr)
 library(stringr)
 library(SingleCellExperiment)
 library(gridExtra)
-source("R/protein_kp/braf_protein_helper_functions.R")
-source("R/variant_ID.R")
-source("R/enumerate_clones_2.R")
-source("R/protein_kp/cluster.R")
+source("src/braf_protein_helper_functions.R")
+source("src/variant_ID.R")
+source("src/enumerate_clones_2.R")
+source("src/protein_kp/cluster.R")
 library(BiocGenerics)#showMethods("match")
 
 #⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
@@ -29,12 +29,7 @@ if(comparing_cohorts){ # if two different groups (like BRAF samples vs other AML
   cat(magenta("Comparing two cohorts: BRAF samples vs other AML samples \n"))
   sample_files_group1 <- Sys.glob("BRAF/*.h5")
   
-  sample_files_group2 = c("./data/A0290.dna+protein.h5", # TET2, NPM1, NRAS
-                          "./data/A1107.dna+protein.h5", # TET2, NPM1, NRAS
-                          "./data/A0259.dna+protein.h5",# TET2, NRAS, FLT3
-                          "./data/Sample17020.dna+protein.h5", # TET2, NPM1, NRAS
-                          "./data/LAM_1962.dna+protein.h5", # TET2, NPM1, NRAS
-                          "./data/LAM_3307.dna+protein.h5")# TET2, NPM1, NRAS
+  #sample_files_group2 = c()# TET2, NPM1, NRAS
   base_variant_output_list_g1 <- list()
   for (sample_file in sample_files_group1){
     base_variant_output_list_g1[[sample_file]]<- variant_ID(file=sample_file,panel="Myeloid", GT_cutoff=90,VAF_cutoff=1)
@@ -67,7 +62,6 @@ if(comparing_cohorts){ # if two different groups (like BRAF samples vs other AML
 
   sample_files_group1 <-  Sys.glob("BRAF/*.h5")
   for (sample_file in sample_files_group1){
-    #sample_file <- "BRAF/M7456braf.dna+protein.h5"
     base_variant_output_list<-variant_ID(file=sample_file,panel="Myeloid",
                                          GT_cutoff=85,VAF_cutoff=2)
   }; saveRDS(base_variant_output_list, paste0(base_variant_output_list_save_name, ".rds"))
@@ -90,7 +84,7 @@ for (obj in sce_list){
   cat(length(unique(rownames(obj))), "\n")
 }
 all_unique_vars<- unique(unlist(all_unique_vars)); all_unique_vars
-source("R/protein_kp/load_libraries.R")
+source("src/load_libraries.R")
 load_libraries_2()
 
 group_droplet_metadata<- group_droplete_data(sce_list)
@@ -110,11 +104,8 @@ time_taken <- system.time({
 print(unique(rownames(sce_subset@assays@data@listData[["NGT"]])))
 saveRDS(sce_subset, file.path(path_to_save_variant_data, paste0(run_name, "_sce.rds")))
 
-# seurat_obj@assays[["Protein"]]@scale.data slot: 	Standardized expression values (z-scoring):Each protein’s expression is centered (mean = 0) and scaled (SD = 1) across all cells.
-# seurat_obj@assays[["Protein"]]@data: Just normalized data
 seurat_obj<- cluster_protein_data(sce_subset,protein_normalization_method = "DSB_norm")
 
-#rownames(assay(seurat_obj, "NGT"))
 saveRDS(seurat_obj, file.path(path_to_save_variant_data, paste0(run_name, "_SEURAT.rds")))
 
 
