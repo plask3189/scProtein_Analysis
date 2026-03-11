@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HDF5 Explorer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg:       #080c10;
+    --panel:    #0d1117;
+    --border:   #1e2633;
+    --hover:    #131c26;
+    --grp:      #4fa3e8;
+    --ds:       #3fb950;
+    --dim:      #c9921a;
+    --txt:      #cdd9e5;
+    --muted:    #545d68;
+    --accent:   #58a6ff;
+    --badge-bg: #182030;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--panel);
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 17px;
+    color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+  header .filename {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .badge {
+    background: var(--badge-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .search-wrap {
+    margin-left: auto;
+    position: relative;
+  }
+  #search {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--txt);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 5px 10px 5px 28px;
+    width: 220px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #search:focus { border-color: var(--accent); }
+  .search-wrap::before {
+    content: "⌕";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 14px;
+    pointer-events: none;
+  }
+
+  /* ── Layout ── */
+  .layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Tree panel ── */
+  .tree-panel {
+    width: 380px;
+    min-width: 240px;
+    max-width: 560px;
+    resize: horizontal;
+    overflow: auto;
+    border-right: 1px solid var(--border);
+    padding: 10px 0;
+    flex-shrink: 0;
+  }
+
+  ul { list-style: none; padding: 0; }
+  ul ul { padding-left: 18px; border-left: 1px solid #1e2633; margin-left: 10px; }
+
+  .node {
+    cursor: pointer;
+    padding: 3px 14px 3px 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background .1s;
+  }
+  .node:hover { background: var(--hover); }
+  .node.active { background: #132040; }
+  .node.hidden { display: none; }
+
+  .toggle {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: var(--muted);
+    transition: transform .15s;
+  }
+  .toggle.open { transform: rotate(90deg); }
+  .toggle.leaf  { color: transparent; }
+
+  .icon { font-size: 12px; flex-shrink: 0; }
+  .icon.grp { color: var(--grp); }
+  .icon.ds  { color: var(--ds); }
+
+  .label { color: var(--txt); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .shape-badge {
+    font-size: 9px;
+    color: var(--dim);
+    background: #1a1200;
+    border: 1px solid #3a2800;
+    border-radius: 3px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+  }
+
+  .children { overflow: hidden; }
+  .children.collapsed { display: none; }
+
+  /* ── Preview panel ── */
+  .preview-panel {
+    flex: 1;
+    overflow: auto;
+    padding: 24px 28px;
+  }
+
+  .placeholder {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    gap: 10px;
+    font-size: 13px;
+  }
+  .placeholder .big { font-size: 36px; }
+
+  .preview-header {
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-header h2 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .preview-header .path {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .meta-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .meta-card .key { font-size: 10px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+  .meta-card .val { font-size: 13px; color: var(--txt); font-weight: 600; }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  /* ── Stats row ── */
+  .stats-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  .stat-pill {
+    background: var(--badge-bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: var(--txt);
+  }
+  .stat-pill span { color: var(--dim); margin-right: 4px; }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  table {
+    border-collapse: collapse;
+    width: max-content;
+    min-width: 100%;
+  }
+  th {
+    background: #0d1520;
+    color: var(--dim);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+  }
+  th:first-child { text-align: left; color: var(--muted); }
+  td {
+    padding: 5px 12px;
+    border-bottom: 1px solid #111820;
+    font-size: 11.5px;
+    text-align: right;
+    white-space: nowrap;
+    color: var(--txt);
+  }
+  td:first-child { color: var(--muted); text-align: left; }
+  tr:hover td { background: var(--hover); }
+  .truncate-note { font-size: 10px; color: var(--muted); margin-top: 6px; }
+
+  /* ── String list ── */
+  .string-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 22px;
+  }
+  .str-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 11px;
+    color: var(--ds);
+  }
+
+  /* ── 1-D sparkline bar ── */
+  .bar-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-bottom: 22px;
+    align-items: flex-end;
+    height: 60px;
+  }
+  .bar-item {
+    flex: 1;
+    min-width: 3px;
+    max-width: 18px;
+    background: var(--accent);
+    opacity: 0.7;
+    border-radius: 2px 2px 0 0;
+    transition: opacity .1s;
+  }
+  .bar-item:hover { opacity: 1; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3240; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>HDF5 Explorer</h1>
+    <div class="filename" id="fname"></div>
+  </div>
+  <div class="badge" id="node-count"></div>
+  <div class="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes…" oninput="filterTree(this.value)">
+  </div>
+</header>
+
+<div class="layout">
+  <div class="tree-panel" id="tree"></div>
+  <div class="preview-panel" id="preview">
+    <div class="placeholder">
+      <div class="big">⬡</div>
+      <div>Click any node to preview its data</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {"type": "group", "name": "Pt_H.dna+protein.h5", "path": "/", "children": [{"type": "group", "name": "all_barcodes", "path": "all_barcodes", "children": [{"type": "group", "name": "dna_read_counts", "path": "all_barcodes/dna_read_counts", "children": [{"type": "group", "name": "ca", "path": "all_barcodes/dna_read_counts/ca", "children": [{"type": "dataset", "name": "id", "path": "all_barcodes/dna_read_counts/ca/id", "preview": {"shape": [312], "dtype": "|S23", "bytes": 7176, "kind": "strings", "values": ["MYE_v2_ASXL1_31022366", "MYE_v2_ASXL1_31022711", "MYE_v2_ASXL1_31022977", "MYE_v2_ASXL1_31023229", "MYE_v2_ASXL1_31023478", "MYE_v2_ASXL1_31023678", "MYE_v2_ASXL1_31023938", "MYE_v2_ASXL1_31024173", "MYE_v2_ASXL1_31024623", "MYE_v2_ASXL1_31024877", "MYE_v2_ATM_108183093", "MYE_v2_ATM_108236066", "MYE_v2_BCOR_39911549", "MYE_v2_BCOR_39913124", "MYE_v2_BCOR_39913467", "MYE_v2_BCOR_39914558", "MYE_v2_BCOR_39916401", "MYE_v2_BCOR_39921398", "MYE_v2_BCOR_39921922", "MYE_v2_BCOR_39922192", "MYE_v2_BCOR_39922873", "MYE_v2_BCOR_39923132", "MYE_v2_BCOR_39923596", "MYE_v2_BCOR_39930808", "MYE_v2_BCOR_39931479", "MYE_v2_BCOR_39931741", "MYE_v2_BCOR_39932294", "MYE_v2_BCOR_39932582", "MYE_v2_BCOR_39932871", "MYE_v2_BCOR_39933297", "MYE_v2_BCOR_39933500", "MYE_v2_BCOR_39933706", "MYE_v2_BCOR_39934221", "MYE_v2_BRAF_140449061", "MYE_v2_BRAF_140453031", "MYE_v2_BRAF_140476649", "MYE_v2_BRAF_140477786", "MYE_v2_BRAF_140481299", "MYE_v2_BRAF_140482781", "MYE_v2_BRAF_140487294", "MYE_v2_BRAF_140500159", "MYE_v2_BRAF_140501154", "MYE_v2_BRAF_140534529", "MYE_v2_BRAF_140549914", "MYE_v2_BRAF_140624305", "MYE_v2_CALR_13054545", "MYE_v2_CBL_119148395", "MYE_v2_CBL_119148818", "MYE_v2_CBL_119149209", "MYE_v2_CHEK2_29083873"]}}]}, {"type": "group", "name": "layers", "path": "all_barcodes/dna_read_counts/layers", "children": [{"type": "dataset", "name": "read_counts", "path": "all_barcodes/dna_read_counts/layers/read_counts", "preview": {"shape": [1859476, 312], "dtype": "int64", "bytes": 4641252096, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "stats": {"min": 0.0, "max": 3.0, "mean": 0.007051282051282051, "median": 0.0}}}]}, {"type": "group", "name": "metadata", "path": "all_barcodes/dna_read_counts/metadata", "children": [{"type": "dataset", "name": "sample_name", "path": "all_barcodes/dna_read_counts/metadata/sample_name", "preview": {"shape": [1, 1], "dtype": "|S7", "bytes": 7, "kind": "strings", "values": ["sample1"]}}]}, {"type": "group", "name": "ra", "path": "all_barcodes/dna_read_counts/ra", "children": [{"type": "dataset", "name": "barcode", "path": "all_barcodes/dna_read_counts/ra/barcode", "preview": {"shape": [1859476], "dtype": "|S20", "bytes": 37189520, "kind": "strings", "values": ["AACAACCTAAACAACTGG-1", "AACAACCTAAACAATGCA-1", "AACAACCTAAACACACTC-1", "AACAACCTAAACAGATCG-1", "AACAACCTAAACAGCAGT-1", "AACAACCTAAACCATGGT-1", "AACAACCTAAACCGCTGA-1", "AACAACCTAAACCGTGAG-1", "AACAACCTAAACGAGAAT-1", "AACAACCTAAACGAGGTG-1", "AACAACCTAAACGCATTG-1", "AACAACCTAAACGCCTAC-1", "AACAACCTAAACGCTCAA-1", "AACAACCTAAACGGAGAT-1", "AACAACCTAAACGTCGAG-1", "AACAACCTAAACGTTCTT-1", "AACAACCTAAACTAACTG-1", "AACAACCTAAACTGATTC-1", "AACAACCTAAACTGCGAC-1", "AACAACCTAAACTTAGCT-1", "AACAACCTAAACTTCTGC-1", "AACAACCTAAACTTGTCG-1", "AACAACCTAAAGACGAAG-1", "AACAACCTAAAGACTGGT-1", "AACAACCTAAAGAGAGAG-1", "AACAACCTAAAGCAACTA-1", "AACAACCTAAAGCAATCG-1", "AACAACCTAAAGCACAAC-1", "AACAACCTAAAGCAGCAT-1", "AACAACCTAAAGCATTGC-1", "AACAACCTAAAGCCAAGT-1", "AACAACCTAAAGCCACAC-1", "AACAACCTAAAGCTGAGG-1", "AACAACCTAAAGCTTGCA-1", "AACAACCTAAAGGAACAG-1", "AACAACCTAAAGGAAGTC-1", "AACAACCTAAAGGATCGT-1", "AACAACCTAAAGGTCTGA-1", "AACAACCTAAAGGTGCTG-1", "AACAACCTAAAGTACAGA-1", "AACAACCTAAAGTAGGAC-1", "AACAACCTAAAGTCATGA-1", "AACAACCTAAAGTTCTCT-1", "AACAACCTAAAGTTGCCA-1", "AACAACCTAAATAACTCC-1", "AACAACCTAAATACGTCT-1", "AACAACCTAAATACTCCG-1", "AACAACCTAAATAGACGC-1", "AACAACCTAAATATCAGC-1", "AACAACCTAAATATCGCT-1"]}}, {"type": "dataset", "name": "cellfinder_pass", "path": "all_barcodes/dna_read_counts/ra/cellfinder_pass", "preview": {"shape": [1859476], "dtype": "uint8", "bytes": 1859476, "kind": "1d", "values": [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}}, {"type": "dataset", "name": "sample_name", "path": "all_barcodes/dna_read_counts/ra/sample_name", "preview": {"shape": [1859476], "dtype": "|S7", "bytes": 13016332, "kind": "strings", "values": ["sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1", "sample1"]}}]}]}, {"type": "group", "name": "protein_read_counts", "path": "all_barcodes/protein_read_counts", "children": [{"type": "group", "name": "ca", "path": "all_barcodes/protein_read_counts/ca", "children": [{"type": "dataset", "name": "antibody_id", "path": "all_barcodes/protein_read_counts/ca/antibody_id", "preview": {"shape": [46], "dtype": "|S38", "bytes": 1748, "kind": "strings", "values": ["0062 anti-human CD10", "0061 anti-human CD117 (c-kit)", "0161 anti-human CD11b", "0053 anti-human CD11c", "0064 anti-human CD123", "0364 anti-human CD13", "0055 anti-human CD138 (Syndecan-1)", "0081 anti-human CD14", "0163 anti-human CD141 (Thrombomodulin)", "0083 anti-human CD16", "0358 anti-human CD163", "0050 anti-human CD19", "0160 anti-human CD1c", "0367 anti-human CD2", "0393 anti-human CD22", "0085 anti-human CD25", "0034 anti-human CD3", "0028 anti-human CD30", "0370 anti-human CD303 (BDCA-2)", "0406 anti-human CD304 (Neuropilin-1)", "0052 anti-human CD33", "0054 anti-human CD34", "0389 anti-human CD38", "0072 anti-human CD4", "0073 anti-mouse/human CD44", "0048 anti-human CD45", "0063 anti-human CD45RA", "0087 anti-human CD45RO", "0576 anti-human CD49d", "0138 anti-human CD5", "0047 anti-human CD56 (NCAM)", "0147 anti-human CD62L", "0218 anti-human CD62P (P-Selectin)", "0162 anti-human CD64", "0146 anti-human CD69", "0066 anti-human CD7", "0394 anti-human CD71", "0046 anti-human CD8", "0359 anti-human CD83", "0060 anti-human CD90 (Thy1)", "0351 anti-human CD135 (Flt-3/Flk-2)", "0352 anti-human Fc&#949;RI&#945;", "0159 anti-human HLA-DR", "0090 Mouse IgG1", "0091 Mouse IgG2a", "0092 Mouse IgG2b"]}}, {"type": "dataset", "name": "antibody_sequence", "path": "all_barcodes/protein_read_counts/ca/antibody_sequence", "preview": {"shape": [46], "dtype": "|S15", "bytes": 690, "kind": "strings", "values": ["CAGCCATTCATTAGG", "AGACTAATAGCTGAC", "GACAAGTGATCTGCA", "TACGCCTATAACTTG", "CTTCACTCTGTCAGG", "TTTCAACGCCCTTTC", "ACTCTTTCGTTTACG", "TCTCAGACCTCCGTA", "GGATAACCGCGCTTT", "AAGTTCACTCTTTGC", "GCTTCTCCTTCCTTA", "CTGGGCAATTACTCG", "GAGCTACTTCACTCG", "TACGATTTGTCAGGG", "GGGTTGTTGTCTTTG", "TTTGTCCTGTACGCC", "CTCATTGTAACTCCT", "TCAGGGTGTGCTGTA", "GAGATGTCCGAATTT", "GGACTAAGTTTCGTT", "TAACTCAGGGCCTAT", "GCAGAAATCTCCCTT", "TGTACCCGCTTGTGA", "TGTTCCCGCTCAACT", "TGGCTTCAGGTCCTA", "TCCCTTGCGATTTAC", "TCAATCCTTCCGCTT", "CTCCGAATCATGTTG", "CCATTCAACTTCCGG", "CATTAACGGGATGCC", "TCCTTTCCTGATAGG", "GTCCCTGCAACTTGA", "CCTTCCGTATCCCTT", "AAGTATGCCCTACGA", "GTCTCTTGGCTTAAA", "TGGATTCCCGGACTT", "CCGTGTTCCTCATTA", "GCGCAACTTGATGAT", "CCACTCATTTCCGGT", "GCATTGTACGATTCA", "CAGTAGATGGAGCAT", "CTCGTTTCCGTATCG", "AATAGCGAGCAAGTA", "GCCGGACGACATTAA", "CTCCTACCTAAACTG", "ATATGTATCACGCGA"]}}, {"type": "dataset", "name": "id", "path": "all_barcodes/protein_read_counts/ca/id", "preview": {"shape": [46], "dtype": "|S16", "bytes": 736, "kind": "strings", "values": ["CD10", "CD117", "CD11b", "CD11c", "CD123", "CD13", "CD138", "CD14", "CD141", "CD16", "CD163", "CD19", "CD1c", "CD2", "CD22", "CD25", "CD3", "CD30", "CD303", "CD304", "CD33", "CD34", "CD38", "CD4", "CD44", "CD45", "CD45RA", "CD45RO", "CD49d", "CD5", "CD56", "CD62L", "CD62P", "CD64", "CD69", "CD7", "CD71", "CD8", "CD83", "CD90", "FLT3", "Fc&#949;RI&#945;", "HLA-DR", "IgG1", "IgG2a", "IgG2b"]}}]}, {"type": "group", "name": "layers", "path": "all_barcodes/protein_read_counts/layers", "children": [{"type": "dataset", "name": "read_counts", "path": "all_barcodes/protein_read_counts/layers/read_counts", "preview": {"shape": [961766, 46], "dtype": "int64", "bytes": 353929888, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0, 1, 1, 0, 0, 6, 3, 0, 17, 0, 3, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], [1, 9, 2, 6, 9, 0, 5, 7, 32, 3, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "stats": {"min": 0.0, "max": 124.0, "mean": 2.1130434782608694, "median": 0.0}}}]}, {"type": "group", "name": "metadata", "path": "all_barcodes/protein_read_counts/metadata", "children": [{"type": "dataset", "name": "n_antibodies", "path": "all_barcodes/protein_read_counts/metadata/n_antibodies", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "46"}}, {"type": "dataset", "name": "n_bases_r1", "path": "all_barcodes/protein_read_counts/metadata/n_bases_r1", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "35832670350"}}, {"type": "dataset", "name": "n_bases_r1_q30", "path": "all_barcodes/protein_read_counts/metadata/n_bases_r1_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "32710789078"}}, {"type": "dataset", "name": "n_bases_r2", "path": "all_barcodes/protein_read_counts/metadata/n_bases_r2", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "35832670350"}}, {"type": "dataset", "name": "n_bases_r2_q30", "path": "all_barcodes/protein_read_counts/metadata/n_bases_r2_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "34397100445"}}, {"type": "dataset", "name": "n_candidate_barcodes", "path": "all_barcodes/protein_read_counts/metadata/n_candidate_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "261136"}}, {"type": "dataset", "name": "n_cell_barcode_bases", "path": "all_barcodes/protein_read_counts/metadata/n_cell_barcode_bases", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12129741406"}}, {"type": "dataset", "name": "n_cell_barcode_bases_q30", "path": "all_barcodes/protein_read_counts/metadata/n_cell_barcode_bases_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "11827670688"}}, {"type": "dataset", "name": "n_read_pairs", "path": "all_barcodes/protein_read_counts/metadata/n_read_pairs", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "238884469"}}, {"type": "dataset", "name": "n_read_pairs_after_candidate_barcode_filtering", "path": "all_barcodes/protein_read_counts/metadata/n_read_pairs_after_candidate_barcode_filtering", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "217672241"}}, {"type": "dataset", "name": "n_read_pairs_trimmed", "path": "all_barcodes/protein_read_counts/metadata/n_read_pairs_trimmed", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "238709301"}}, {"type": "dataset", "name": "n_read_pairs_valid_ab_barcodes", "path": "all_barcodes/protein_read_counts/metadata/n_read_pairs_valid_ab_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "220567995"}}, {"type": "dataset", "name": "n_read_pairs_valid_cell_barcodes", "path": "all_barcodes/protein_read_counts/metadata/n_read_pairs_valid_cell_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "232753601"}}, {"type": "dataset", "name": "panel_name", "path": "all_barcodes/protein_read_counts/metadata/panel_name", "preview": {"shape": [], "dtype": "|S29", "bytes": 29, "kind": "scalar", "value": "totalseq-d-heme-oncology_FLT3"}}, {"type": "dataset", "name": "pipeline_version", "path": "all_barcodes/protein_read_counts/metadata/pipeline_version", "preview": {"shape": [], "dtype": "|S5", "bytes": 5, "kind": "scalar", "value": "2.0.1"}}, {"type": "dataset", "name": "sample_name", "path": "all_barcodes/protein_read_counts/metadata/sample_name", "preview": {"shape": [1, 1], "dtype": "|S9", "bytes": 9, "kind": "strings", "values": ["M1912braf"]}}]}, {"type": "group", "name": "ra", "path": "all_barcodes/protein_read_counts/ra", "children": [{"type": "dataset", "name": "barcode", "path": "all_barcodes/protein_read_counts/ra/barcode", "preview": {"shape": [961766], "dtype": "|S20", "bytes": 19235320, "kind": "strings", "values": ["AACAACCTAAACAACCTA-1", "AACAACCTAAACAATGCA-1", "AACAACCTAAACAGCAGT-1", "AACAACCTAAACCATGGT-1", "AACAACCTAAACGAGGTG-1", "AACAACCTAAACGCCTAC-1", "AACAACCTAAACGGAGAT-1", "AACAACCTAAACGGTAGC-1", "AACAACCTAAACGTTCTT-1", "AACAACCTAAACTTAGCT-1", "AACAACCTAAACTTCTGC-1", "AACAACCTAAAGACTGGT-1", "AACAACCTAAAGAGAACT-1", "AACAACCTAAAGAGAGAG-1", "AACAACCTAAAGCACAAC-1", "AACAACCTAAAGCCAAGT-1", "AACAACCTAAAGCCACAC-1", "AACAACCTAAAGCTGAGG-1", "AACAACCTAAAGGAAGTC-1", "AACAACCTAAAGGATCGT-1", "AACAACCTAAAGTTGCCA-1", "AACAACCTAAATAACTCC-1", "AACAACCTAAATACGTCT-1", "AACAACCTAAATACTCCG-1", "AACAACCTAAATATCGCT-1", "AACAACCTAAATCAGGAG-1", "AACAACCTAAATCCGCTG-1", "AACAACCTAAATCCTCGT-1", "AACAACCTAAATCGCCAT-1", "AACAACCTAAATCGTGTT-1", "AACAACCTAAATCTGACC-1", "AACAACCTAAATGCACTT-1", "AACAACCTAAATGCTGAT-1", "AACAACCTAAATGTGCGT-1", "AACAACCTAAATTCGGAA-1", "AACAACCTAAATTGGATC-1", "AACAACCTAACAAGAATG-1", "AACAACCTAACAAGTACA-1", "AACAACCTAACACACCGT-1", "AACAACCTAACACACGTC-1", "AACAACCTAACACAGAAC-1", "AACAACCTAACACATCTG-1", "AACAACCTAACACCACAT-1", "AACAACCTAACACTGTGA-1", "AACAACCTAACAGAAGAG-1", "AACAACCTAACAGGAACT-1", "AACAACCTAACAGGTATC-1", "AACAACCTAACAGTATTG-1", "AACAACCTAACATGGATT-1", "AACAACCTAACCACGCTA-1"]}}, {"type": "dataset", "name": "sample_name", "path": "all_barcodes/protein_read_counts/ra/sample_name", "preview": {"shape": [961766], "dtype": "|S9", "bytes": 8655894, "kind": "strings", "values": ["M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf"]}}]}]}]}, {"type": "group", "name": "assays", "path": "assays", "children": [{"type": "group", "name": "dna_read_counts", "path": "assays/dna_read_counts", "children": [{"type": "group", "name": "ca", "path": "assays/dna_read_counts/ca", "children": [{"type": "dataset", "name": "CHROM", "path": "assays/dna_read_counts/ca/CHROM", "preview": {"shape": [312], "dtype": "|S2", "bytes": 624, "kind": "strings", "values": ["20", "20", "20", "20", "20", "20", "20", "20", "20", "20", "11", "11", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "X", "7", "7", "7", "7", "7", "7", "7", "7", "7", "7", "7", "7", "19", "11", "11", "11", "22"]}}, {"type": "dataset", "name": "end_pos", "path": "assays/dna_read_counts/ca/end_pos", "preview": {"shape": [312], "dtype": "int64", "bytes": 2496, "kind": "1d", "values": [31022960, 31023214, 31023664, 108183316, 108236276, 39913373, 39914805, 39922173, 39923116, 39923356, 39931726, 39933130, 39933486, 140449302, 140481534, 140534708, 140550147, 13054700, 119148643, 29091938, 25458751, 25462125, 25505626, 25536959, 39755756, 11905550, 11992296, 12006554, 12022731, 12037560, 12039007, 148506348, 148506642, 148508866, 148512224, 148523810, 148524546, 148527056, 148543729, 148544559, 28592796, 28608176, 90632009, 5073830, 44918421, 44922036, 44929335, 44950162, 44966823, 55561828, 118343458, 118344150, 118344618, 118355109, 118355811, 118373788, 118374289, 118375890, 118376400, 25378820, 43815116, 128750582, 128750844, 29528709, 29533423, 29552293, 29562688, 29588793, 29654629, 29667600, 170837659, 115258893, 133528021, 133547651, 133548031, 133551368, 58740837, 89693019, 112888351, 112926429, 117865028, 36171840, 36194025, 42530628, 42531974, 42533540, 198266323, 198267549, 112361983, 123165004, 123176590, 123179189, 123179396, 123181592, 123205212, 123220680, 106155881, 106156135, 106156880, 106157127, 106157580, 106157835, 106162659, 106165013, 106181059, 106190956, 106194118, 106196698, 106197481, 7576990, 7577256, 7578319, 7578627, 32414432, 15822376, 15826525, 15827550, 15840977, 15841126, 15841431]}}, {"type": "dataset", "name": "id", "path": "assays/dna_read_counts/ca/id", "preview": {"shape": [312], "dtype": "|S23", "bytes": 7176, "kind": "strings", "values": ["MYE_v2_ASXL1_31022366", "MYE_v2_ASXL1_31022711", "MYE_v2_ASXL1_31022977", "MYE_v2_ASXL1_31023229", "MYE_v2_ASXL1_31023478", "MYE_v2_ASXL1_31023678", "MYE_v2_ASXL1_31023938", "MYE_v2_ASXL1_31024173", "MYE_v2_ASXL1_31024623", "MYE_v2_ASXL1_31024877", "MYE_v2_ATM_108183093", "MYE_v2_ATM_108236066", "MYE_v2_BCOR_39911549", "MYE_v2_BCOR_39913124", "MYE_v2_BCOR_39913467", "MYE_v2_BCOR_39914558", "MYE_v2_BCOR_39916401", "MYE_v2_BCOR_39921398", "MYE_v2_BCOR_39921922", "MYE_v2_BCOR_39922192", "MYE_v2_BCOR_39922873", "MYE_v2_BCOR_39923132", "MYE_v2_BCOR_39923596", "MYE_v2_BCOR_39930808", "MYE_v2_BCOR_39931479", "MYE_v2_BCOR_39931741", "MYE_v2_BCOR_39932294", "MYE_v2_BCOR_39932582", "MYE_v2_BCOR_39932871", "MYE_v2_BCOR_39933297", "MYE_v2_BCOR_39933500", "MYE_v2_BCOR_39933706", "MYE_v2_BCOR_39934221", "MYE_v2_BRAF_140449061", "MYE_v2_BRAF_140453031", "MYE_v2_BRAF_140476649", "MYE_v2_BRAF_140477786", "MYE_v2_BRAF_140481299", "MYE_v2_BRAF_140482781", "MYE_v2_BRAF_140487294", "MYE_v2_BRAF_140500159", "MYE_v2_BRAF_140501154", "MYE_v2_BRAF_140534529", "MYE_v2_BRAF_140549914", "MYE_v2_BRAF_140624305", "MYE_v2_CALR_13054545", "MYE_v2_CBL_119148395", "MYE_v2_CBL_119148818", "MYE_v2_CBL_119149209", "MYE_v2_CHEK2_29083873"]}}, {"type": "dataset", "name": "r1_counts", "path": "assays/dna_read_counts/ca/r1_counts", "preview": {"shape": [312], "dtype": "int64", "bytes": 2496, "kind": "1d", "values": [656166, 470387, 675005, 557329, 757396, 575792, 95869, 285593, 197930, 290527, 304351, 228870, 776161, 339727, 565352, 674900, 812577, 586288, 174945, 337668, 611213, 559892, 842332, 260891, 768217, 812825, 531946, 345555, 623537, 496391, 552888, 581585, 529841, 748230, 389296, 394081, 964069, 671678, 731250, 131572, 987198, 349832, 805777, 1018548, 24363, 705921, 507597, 387621, 383003, 231771, 351139, 226372, 623551, 826540, 1056496, 777883, 991468, 806797, 498214, 247420, 609219, 1108648, 973394, 812258, 198171, 106236, 364244, 452645, 264564, 492375, 17278, 675632, 876527, 570949, 229532, 677400, 464011, 537586, 973920, 546038, 475098, 323351, 332560, 464430, 358976, 664258, 1040756, 355858, 559325, 721704, 522177, 60661, 705262, 220567, 709536, 270097, 199532, 47470, 654019, 86243, 541123, 830945, 310126, 133854, 820292, 349301, 420255, 106650, 444884, 1303748, 712823, 979878, 188530, 534491, 331968, 518942, 171056, 281499, 357865, 295674]}}, {"type": "dataset", "name": "r2_counts", "path": "assays/dna_read_counts/ca/r2_counts", "preview": {"shape": [312], "dtype": "int64", "bytes": 2496, "kind": "1d", "values": [157101, 654816, 674760, 608097, 545670, 656016, 95558, 212574, 289451, 416944, 446342, 500726, 253581, 215700, 370082, 341788, 338753, 564104, 810973, 835024, 639041, 581511, 335773, 761474, 191483, 399768, 768036, 641601, 329525, 260484, 530237, 611020, 698165, 346050, 581427, 494510, 582042, 284078, 1115878, 930500, 95651, 1109232, 669929, 799812, 727717, 984698, 589360, 764120, 543114, 627301, 415108, 490740, 176511, 322841, 561016, 405606, 185314, 222267, 204672, 1054044, 1139734, 776203, 499877, 336998, 242270, 615589, 892848, 251984, 971114, 209055, 129036, 726228, 331126, 260290, 773982, 1087803, 757537, 17190, 878198, 873331, 564914, 1007195, 677656, 73506, 909704, 458333, 312844, 971717, 928506, 864056, 473906, 1118212, 432196, 321754, 677044, 357945, 545048, 1038050, 380935, 682603, 1002551, 59774, 703228, 220077, 305238, 269013, 10957, 430915, 526003, 321226, 818153, 529565, 95761, 346825, 97845, 971133, 771328, 267433, 286800, 406520]}}, {"type": "dataset", "name": "start_pos", "path": "assays/dna_read_counts/ca/start_pos", "preview": {"shape": [312], "dtype": "int64", "bytes": 2496, "kind": "1d", "values": [31022688, 31023207, 31024602, 31024856, 108236041, 39913099, 39916379, 39923575, 39932850, 39933479, 140449034, 140453008, 140481274, 140482758, 140487270, 140624286, 13054524, 119148789, 36932317, 36933056, 36933341, 25458478, 25461852, 25463106, 25467019, 25468794, 25469929, 25470472, 25505353, 39755749, 12006315, 12022327, 12022459, 12022744, 12038803, 148506074, 148514978, 148526787, 148543455, 28592522, 28602155, 128200655, 5069940, 5073556, 44833792, 44879780, 44919195, 44929061, 44929354, 44948912, 44969319, 55589665, 55591997, 55593586, 55599204, 118343945, 118344370, 118355540, 118373781, 118374282, 118374931, 118376135, 118376961, 25380238, 128750865, 128752721, 38182646, 29527913, 29553655, 29554481, 29556049, 29557800, 29562500, 29575882, 29654372, 29657329, 29663504, 29667326, 29683795, 133527747, 133547776, 133549061, 133551143, 58740215, 89692748, 112926155, 117869517, 36164657, 42533266, 198266483, 198267293, 112362893, 123164767, 123178916, 123181077, 123181323, 123197712, 123204938, 123220406, 106155122, 106155619, 106157859, 106162385, 106164739, 106182793, 106190689, 106196158, 106196977, 106197475, 7573859, 7576996, 7577376, 7578062, 7578363, 44524258, 32413389, 15808934, 15822141, 15838219, 15841157]}}]}, {"type": "group", "name": "layers", "path": "assays/dna_read_counts/layers", "children": [{"type": "dataset", "name": "read_counts", "path": "assays/dna_read_counts/layers/read_counts", "preview": {"shape": [7412, 312], "dtype": "int64", "bytes": 18500352, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[9, 51, 171, 27, 37, 42, 59, 25, 33, 107, 107, 28], [29, 49, 44, 57, 23, 6, 32, 66, 24, 73, 40, 17], [2, 3, 25, 25, 42, 34, 67, 43, 55, 51, 117, 15], [7, 36, 102, 30, 85, 38, 28, 14, 39, 21, 168, 68], [30, 88, 119, 114, 98, 48, 167, 106, 113, 126, 219, 56], [50, 85, 163, 125, 129, 89, 161, 133, 141, 136, 165, 50], [5, 40, 34, 39, 33, 19, 40, 62, 29, 53, 29, 25], [2, 26, 87, 86, 43, 38, 56, 100, 100, 85, 150, 69], [9, 98, 81, 57, 66, 52, 105, 46, 51, 58, 60, 48], [34, 94, 57, 61, 39, 28, 109, 77, 106, 78, 82, 62]], "stats": {"min": 0.0, "max": 355.0, "mean": 72.70641025641025, "median": 57.0}}}]}, {"type": "group", "name": "metadata", "path": "assays/dna_read_counts/metadata", "children": [{"type": "dataset", "name": "ado_rate", "path": "assays/dna_read_counts/metadata/ado_rate", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.142"}}, {"type": "dataset", "name": "avg_mapping_error_rate", "path": "assays/dna_read_counts/metadata/avg_mapping_error_rate", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.007338244"}}, {"type": "dataset", "name": "avg_panel_uniformity", "path": "assays/dna_read_counts/metadata/avg_panel_uniformity", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.9423076923076923"}}, {"type": "dataset", "name": "chemistry_version", "path": "assays/dna_read_counts/metadata/chemistry_version", "preview": {"shape": [], "dtype": "|S2", "bytes": 2, "kind": "scalar", "value": "V2"}}, {"type": "dataset", "name": "genome_version", "path": "assays/dna_read_counts/metadata/genome_version", "preview": {"shape": [], "dtype": "|S4", "bytes": 4, "kind": "scalar", "value": "hg19"}}, {"type": "dataset", "name": "n_amplicons", "path": "assays/dna_read_counts/metadata/n_amplicons", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "312"}}, {"type": "dataset", "name": "n_bases_r1", "path": "assays/dna_read_counts/metadata/n_bases_r1", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "37196533950"}}, {"type": "dataset", "name": "n_bases_r1_q30", "path": "assays/dna_read_counts/metadata/n_bases_r1_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "34372444910"}}, {"type": "dataset", "name": "n_bases_r2", "path": "assays/dna_read_counts/metadata/n_bases_r2", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "37196533950"}}, {"type": "dataset", "name": "n_bases_r2_q30", "path": "assays/dna_read_counts/metadata/n_bases_r2_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "32834981553"}}, {"type": "dataset", "name": "n_cell_barcode_bases", "path": "assays/dna_read_counts/metadata/n_cell_barcode_bases", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12190943854"}}, {"type": "dataset", "name": "n_cell_barcode_bases_q30", "path": "assays/dna_read_counts/metadata/n_cell_barcode_bases_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12134732867"}}, {"type": "dataset", "name": "n_cells", "path": "assays/dna_read_counts/metadata/n_cells", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "7412"}}, {"type": "dataset", "name": "n_read_pairs", "path": "assays/dna_read_counts/metadata/n_read_pairs", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "247976893"}}, {"type": "dataset", "name": "n_read_pairs_mapped_to_cells", "path": "assays/dna_read_counts/metadata/n_read_pairs_mapped_to_cells", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "169519085"}}, {"type": "dataset", "name": "n_read_pairs_trimmed", "path": "assays/dna_read_counts/metadata/n_read_pairs_trimmed", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "240110701"}}, {"type": "dataset", "name": "n_read_pairs_valid_cell_barcodes", "path": "assays/dna_read_counts/metadata/n_read_pairs_valid_cell_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "235467998"}}, {"type": "dataset", "name": "n_reads_mapped", "path": "assays/dna_read_counts/metadata/n_reads_mapped", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "441953973"}}, {"type": "dataset", "name": "n_reads_mapped_insert", "path": "assays/dna_read_counts/metadata/n_reads_mapped_insert", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "424876938"}}, {"type": "dataset", "name": "panel_name", "path": "assays/dna_read_counts/metadata/panel_name", "preview": {"shape": [], "dtype": "|S7", "bytes": 7, "kind": "scalar", "value": "Myeloid"}}, {"type": "dataset", "name": "pipeline_version", "path": "assays/dna_read_counts/metadata/pipeline_version", "preview": {"shape": [], "dtype": "|S5", "bytes": 5, "kind": "scalar", "value": "2.0.2"}}, {"type": "dataset", "name": "sample_name", "path": "assays/dna_read_counts/metadata/sample_name", "preview": {"shape": [1, 1], "dtype": "|S9", "bytes": 9, "kind": "strings", "values": ["M1912braf"]}}]}, {"type": "group", "name": "ra", "path": "assays/dna_read_counts/ra", "children": [{"type": "dataset", "name": "barcode", "path": "assays/dna_read_counts/ra/barcode", "preview": {"shape": [7412], "dtype": "|S18", "bytes": 133416, "kind": "strings", "values": ["AACAACCTATATCCTCAG", "AACAACCTATCAGTGTTC", "AACAACTGGACACTAACG", "AACAACTGGAGCACCAGC", "AACAACTGGAGTTCAACC", "AACAACTGGCATAAGATC", "AACAACTGGCCGATCAGC", "AACAACTGGGCTACCGAG", "AACAACTGGGGTACGAGC", "AACAATGCACCTGTTAGC", "AACAATGCAGCGAAGCTC", "AACAATGCAGCGGAGATT", "AACAATGCAGTAAGGTCC", "AACAATGCATGCGTGCCA", "AACAATGCATTAACGGAG", "AACACACTCACTTAGCTT", "AACACACTCCAGTGCTGC", "AACACACTCCTAGTCGTC", "AACACACTCCTTCCGTGG", "AACACACTCGCGCTAGAA", "AACACACTCGTGCTGACT", "AACACACTCTACGAGTGA", "AACACACTCTCTTAAGTG", "AACAGATCGCGACCTAGC", "AACAGATCGGACCAACAG", "AACAGATCGTAGCTAAGA", "AACAGATCGTCCAAGTAA", "AACAGCAGTACTACCATC", "AACAGCAGTCAGCAGTAC", "AACAGCAGTCTCTGTCAA", "AACAGCAGTTACAAGAGG", "AACCATGGTATCGTAGTG", "AACCATGGTTTACAGTGT", "AACCGCTGAAGCCAGGAC", "AACCGCTGAATAAGTTCG", "AACCGCTGAATCAGAAGC", "AACCGCTGACACCAGAAG", "AACCGCTGACACGGAAGT", "AACCGCTGACGGAAGACG", "AACCGTGAGAGTCCAGTG", "AACCGTGAGCGATCCAGA", "AACCGTGAGTGGTAGCAG", "AACGAGAATACTGGTCAG", "AACGAGAATCTAACACTG", "AACGAGAATCTAGTGCTG", "AACGAGAATCTCATGCCA", "AACGAGAATTCAGTAAGC", "AACGAGGTGAGCGGTCTA", "AACGAGGTGCATGGTTAC", "AACGAGGTGCCTAAGTCT"]}}, {"type": "dataset", "name": "sample_name", "path": "assays/dna_read_counts/ra/sample_name", "preview": {"shape": [7412], "dtype": "|S9", "bytes": 66708, "kind": "strings", "values": ["M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf"]}}]}]}, {"type": "group", "name": "dna_variants", "path": "assays/dna_variants", "children": [{"type": "group", "name": "ca", "path": "assays/dna_variants/ca", "children": [{"type": "dataset", "name": "ALT", "path": "assays/dna_variants/ca/ALT", "preview": {"shape": [111360], "dtype": "|S99", "bytes": 11024640, "kind": "strings", "values": ["T", "A", "T", "A", "A", "T", "C", "A", "A", "C", "A", "T", "A", "G", "A", "C", "C", "A", "G", "A", "T", "G", "T", "G", "T", "T", "A", "A", "T", "A", "C", "T", "T", "T", "A", "T", "C", "T", "G", "C", "G", "T", "A", "A", "T", "A", "A", "C", "T", "A"]}}, {"type": "dataset", "name": "CHROM", "path": "assays/dna_variants/ca/CHROM", "preview": {"shape": [111360], "dtype": "|S2", "bytes": 222720, "kind": "strings", "values": ["1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1", "1"]}}, {"type": "dataset", "name": "POS", "path": "assays/dna_variants/ca/POS", "preview": {"shape": [111360], "dtype": "int32", "bytes": 445440, "kind": "1d", "values": [43814947, 115258642, 115258806, 25458560, 25461909, 25469204, 25469560, 198266134, 198266601, 198267426, 198267456, 198267597, 198267712, 209113230, 209113393, 55589697, 55592157, 106157805, 106158191, 106158328, 106190757, 106194044, 106197356, 106197427, 140449169, 140550104, 148511070, 148511214, 148514345, 148514376, 148524459, 148524496, 148543482, 117864247, 117864972, 117868974, 128750628, 128752779, 89692935, 112343976, 112356089, 112362952, 32413478, 32417850, 32417887, 108236072, 118344313, 118352446, 118375413, 118376307, 118376355, 119148540, 119149250, 119149409, 12022681, 12037428, 12038865, 25378758, 112888136, 112888231, 112888299, 112926348, 112926873, 28609609, 7576754, 7579446, 7579864, 29528145, 29528512, 29554700, 29556289, 29556855, 29559936, 29563067, 29654653, 29654825, 29683971, 29685684, 29685720, 40474964, 58740320, 42530475, 42530596, 42531794, 42532153, 42533231, 42533360, 31022990, 31023320, 31023352, 31024243, 31024980, 36171702, 36193777, 39755881, 44524327, 29091766, 29091868, 15821801, 15841355, 39911651, 39922203, 39923169, 39930938, 39931785, 39932965, 39933658, 39933857, 44879886, 44879958, 44938643, 44949003, 53426602, 123197940, 133527649, 133547426, 133547618, 133547935, 133549196, 133551314]}}, {"type": "dataset", "name": "QUAL", "path": "assays/dna_variants/ca/QUAL", "preview": {"shape": [111360], "dtype": "float32", "bytes": 445440, "kind": "1d", "values": [1397.6700439453125, 3038.6298828125, 4539.72998046875, 801.780029296875, 459.7099914550781, 0.0, 3879.360107421875, 1199.68994140625, 841.3300170898438, 1855.5999755859375, 3028.419921875, 5366.919921875, 6227.830078125, 6149.4501953125, 8109.93017578125, 454.2200012207031, 0.0, 243.75999450683594, 342.8299865722656, 1474.199951171875, 3316.97998046875, 4773.7900390625, 4012.169921875, 3948.27001953125, 2311.0, 2381.4599609375, 5183.1298828125, 2443.97998046875, 102.25, 4613.419921875, 2774.93994140625, 7435.2099609375, 376.5400085449219, 7014.240234375, 0.0, 2577.22998046875, 3455.31005859375, 7033.39990234375, 1135.5699462890625, 1935.469970703125, 1067.52001953125, 1076.0799560546875, 4707.35009765625, 337.6000061035156, 1001.8599853515625, 4717.580078125, 6028.31005859375, 4518.990234375, 8505.7001953125, 6615.47998046875, 1030.2900390625, 1571.1199951171875, 2102.85009765625, 680.969970703125, 1731.52001953125, 1811.0, 3605.610107421875, 1891.93994140625, 2806.929931640625, 3472.02001953125, 2641.570068359375, 2937.030029296875, 2637.260009765625, 4039.469970703125, 1689.1300048828125, 1435.75, 4395.4501953125, 1355.9200439453125, 11437.2998046875, 1213.68994140625, 1266.9599609375, 601.3099975585938, 2651.919921875, 3376.469970703125, 5647.68017578125, 423.2200012207031, 5205.259765625, 261.3699951171875, 1635.5799560546875, 443.8500061035156, 17287.19921875, 1784.2099609375, 2235.89990234375, 7995.6298828125, 0.0, 2953.93994140625, 2125.570068359375, 2052.35009765625, 3572.320068359375, 1627.1800537109375, 4444.080078125, 1606.4100341796875, 1667.7099609375, 489.92999267578125, 5905.1201171875, 2808.320068359375, 1262.719970703125, 5409.66015625, 608.9000244140625, 63.43000030517578, 9164.1796875, 5044.81005859375, 4784.77978515625, 1740.56005859375, 6292.27001953125, 3272.85009765625, 4558.8701171875, 2183.360107421875, 1822.4200439453125, 16088.7998046875, 434.5299987792969, 2299.56005859375, 2450.010009765625, 6822.9501953125, 2922.860107421875, 644.3300170898438, 5059.47998046875, 8697.8701171875, 9011.7001953125, 1335.760009765625]}}, {"type": "dataset", "name": "REF", "path": "assays/dna_variants/ca/REF", "preview": {"shape": [111360], "dtype": "|S128", "bytes": 14254080, "kind": "strings", "values": ["G", "G", "G", "G", "G", "C", "T", "T", "G", "G", "G", "G", "G", "GT", "G", "T", "T", "T", "A", "AC", "C", "C", "C", "A", "A", "G", "G", "G", "G", "G", "T", "TC", "C", "C", "C", "C", "CA", "C", "A", "A", "A", "A", "G", "G", "G", "G", "G", "G", "C", "C"]}}, {"type": "dataset", "name": "ado_gt_cells", "path": "assays/dna_variants/ca/ado_gt_cells", "preview": {"shape": [111360], "dtype": "float16", "bytes": 222720, "kind": "1d", "values": [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]}}, {"type": "dataset", "name": "ado_rate", "path": "assays/dna_variants/ca/ado_rate", "preview": {"shape": [111360], "dtype": "float16", "bytes": 222720, "kind": "1d", "values": [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]}}, {"type": "dataset", "name": "amplicon", "path": "assays/dna_variants/ca/amplicon", "preview": {"shape": [111360], "dtype": "|S23", "bytes": 2561280, "kind": "strings", "values": ["MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055", "MYE_v2_CSF3R_36932055"]}}, {"type": "dataset", "name": "filtered", "path": "assays/dna_variants/ca/filtered", "preview": {"shape": [111360], "dtype": "uint8", "bytes": 111360, "kind": "1d", "values": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]}}, {"type": "dataset", "name": "id", "path": "assays/dna_variants/ca/id", "preview": {"shape": [111360], "dtype": "|S145", "bytes": 16147200, "kind": "strings", "values": ["chr1:36932056:G/T", "chr1:36932056:G/A", "chr1:36932057:G/T", "chr1:36932057:G/A", "chr1:36932058:G/A", "chr1:36932059:C/T", "chr1:36932060:T/C", "chr1:36932060:T/A", "chr1:36932061:G/A", "chr1:36932061:G/C", "chr1:36932062:G/A", "chr1:36932062:G/T", "chr1:36932063:G/A", "chr1:36932064:GT/G", "chr1:36932064:G/A", "chr1:36932065:T/C", "chr1:36932066:T/C", "chr1:36932066:T/A", "chr1:36932067:A/G", "chr1:36932067:AC/A", "chr1:36932068:C/T", "chr1:36932068:C/G", "chr1:36932069:C/T", "chr1:36932070:A/G", "chr1:36932070:A/T", "chr1:36932071:G/T", "chr1:36932071:G/A", "chr1:36932072:G/A", "chr1:36932072:G/T", "chr1:36932073:G/A", "chr1:36932074:T/C", "chr1:36932074:TC/T", "chr1:36932075:C/T", "chr1:36932076:C/T", "chr1:36932076:C/A", "chr1:36932077:C/T", "chr1:36932078:CA/C", "chr1:36932078:C/T", "chr1:36932079:A/G", "chr1:36932079:A/C", "chr1:36932080:A/G", "chr1:36932080:A/T", "chr1:36932081:G/A", "chr1:36932082:G/A", "chr1:36932082:G/T", "chr1:36932083:G/A", "chr1:36932084:G/A", "chr1:36932084:G/C", "chr1:36932085:C/T", "chr1:36932085:C/A"]}}]}, {"type": "group", "name": "layers", "path": "assays/dna_variants/layers", "children": [{"type": "dataset", "name": "AF", "path": "assays/dna_variants/layers/AF", "preview": {"shape": [7412, 111360], "dtype": "float64", "bytes": 6603202560, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [26.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 1.8867924528301887, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [13.043478260869565, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [3.6363636363636362, 3.6363636363636362, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.8181818181818181, 1.8181818181818181, 1.8181818181818181, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.9230769230769231, 1.9230769230769231, 0.0, 0.0]], "stats": {"min": 0.0, "max": 100.0, "mean": 0.9214189125661688, "median": 0.0}}}, {"type": "dataset", "name": "DP", "path": "assays/dna_variants/layers/DP", "preview": {"shape": [7412, 111360], "dtype": "int16", "bytes": 1650800640, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53], [56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56], [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50], [50, 50, 50, 50, 50, 50, 47, 47, 47, 47, 47, 47], [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50], [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52], [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50], [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52], [51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51], [45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45]], "stats": {"min": 0.0, "max": 186.0, "mean": 39.56301813936781, "median": 50.0}}}, {"type": "dataset", "name": "FILTER_MASK", "path": "assays/dna_variants/layers/FILTER_MASK", "preview": {"shape": [7412, 111360], "dtype": "uint8", "bytes": 825400320, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "stats": {"min": 0.0, "max": 1.0, "mean": 0.002520653735632184, "median": 0.0}}}, {"type": "dataset", "name": "GQ", "path": "assays/dna_variants/layers/GQ", "preview": {"shape": [7412, 111360], "dtype": "int8", "bytes": 825400320, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[72, 72, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87], [99, 99, 99, 99, 99, 99, 60, 60, 99, 99, 99, 99], [66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66], [99, 99, 99, 99, 99, 99, 99, 99, 16, 16, 99, 99], [96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96], [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99], [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99], [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99], [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99], [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99]], "stats": {"min": 0.0, "max": 99.0, "mean": 77.47567349137931, "median": 99.0}}}, {"type": "dataset", "name": "NGT", "path": "assays/dna_variants/layers/NGT", "preview": {"shape": [7412, 111360], "dtype": "int8", "bytes": 825400320, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "stats": {"min": 0.0, "max": 3.0, "mean": 0.23420079022988505, "median": 0.0}}}, {"type": "dataset", "name": "RGQ", "path": "assays/dna_variants/layers/RGQ", "preview": {"shape": [7412, 111360], "dtype": "int32", "bytes": 3301601280, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "stats": {"min": 0.0, "max": 99.0, "mean": 0.2924865301724138, "median": 0.0}}}]}, {"type": "group", "name": "metadata", "path": "assays/dna_variants/metadata", "children": [{"type": "dataset", "name": "ado_rate", "path": "assays/dna_variants/metadata/ado_rate", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.142"}}, {"type": "dataset", "name": "af_cutoff", "path": "assays/dna_variants/metadata/af_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "20"}}, {"type": "dataset", "name": "avg_mapping_error_rate", "path": "assays/dna_variants/metadata/avg_mapping_error_rate", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.007338244"}}, {"type": "dataset", "name": "avg_panel_uniformity", "path": "assays/dna_variants/metadata/avg_panel_uniformity", "preview": {"shape": [], "dtype": "float64", "bytes": 8, "kind": "scalar", "value": "0.9423076923076923"}}, {"type": "dataset", "name": "chemistry_version", "path": "assays/dna_variants/metadata/chemistry_version", "preview": {"shape": [], "dtype": "|S2", "bytes": 2, "kind": "scalar", "value": "V2"}}, {"type": "dataset", "name": "dp_cutoff", "path": "assays/dna_variants/metadata/dp_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "10"}}, {"type": "dataset", "name": "genome_version", "path": "assays/dna_variants/metadata/genome_version", "preview": {"shape": [], "dtype": "|S4", "bytes": 4, "kind": "scalar", "value": "hg19"}}, {"type": "dataset", "name": "gq_cutoff", "path": "assays/dna_variants/metadata/gq_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "30"}}, {"type": "dataset", "name": "high_quality_variants", "path": "assays/dna_variants/metadata/high_quality_variants", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "0"}}, {"type": "dataset", "name": "missing_cells_cutoff", "path": "assays/dna_variants/metadata/missing_cells_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "50"}}, {"type": "dataset", "name": "missing_variants_cutoff", "path": "assays/dna_variants/metadata/missing_variants_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "50"}}, {"type": "dataset", "name": "mutated_cells_cutoff", "path": "assays/dna_variants/metadata/mutated_cells_cutoff", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "1"}}, {"type": "dataset", "name": "n_amplicons", "path": "assays/dna_variants/metadata/n_amplicons", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "312"}}, {"type": "dataset", "name": "n_bases_r1", "path": "assays/dna_variants/metadata/n_bases_r1", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "37196533950"}}, {"type": "dataset", "name": "n_bases_r1_q30", "path": "assays/dna_variants/metadata/n_bases_r1_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "34372444910"}}, {"type": "dataset", "name": "n_bases_r2", "path": "assays/dna_variants/metadata/n_bases_r2", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "37196533950"}}, {"type": "dataset", "name": "n_bases_r2_q30", "path": "assays/dna_variants/metadata/n_bases_r2_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "32834981553"}}, {"type": "dataset", "name": "n_cell_barcode_bases", "path": "assays/dna_variants/metadata/n_cell_barcode_bases", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12190943854"}}, {"type": "dataset", "name": "n_cell_barcode_bases_q30", "path": "assays/dna_variants/metadata/n_cell_barcode_bases_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12134732867"}}, {"type": "dataset", "name": "n_cells", "path": "assays/dna_variants/metadata/n_cells", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "7412"}}, {"type": "dataset", "name": "n_passing_cells", "path": "assays/dna_variants/metadata/n_passing_cells", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "7409"}}, {"type": "dataset", "name": "n_passing_variants", "path": "assays/dna_variants/metadata/n_passing_variants", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "112"}}, {"type": "dataset", "name": "n_passing_variants_per_cell", "path": "assays/dna_variants/metadata/n_passing_variants_per_cell", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "44"}}, {"type": "dataset", "name": "n_read_pairs", "path": "assays/dna_variants/metadata/n_read_pairs", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "247976893"}}, {"type": "dataset", "name": "n_read_pairs_mapped_to_cells", "path": "assays/dna_variants/metadata/n_read_pairs_mapped_to_cells", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "169519085"}}, {"type": "dataset", "name": "n_read_pairs_trimmed", "path": "assays/dna_variants/metadata/n_read_pairs_trimmed", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "240110701"}}, {"type": "dataset", "name": "n_read_pairs_valid_cell_barcodes", "path": "assays/dna_variants/metadata/n_read_pairs_valid_cell_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "235467998"}}, {"type": "dataset", "name": "n_reads_mapped", "path": "assays/dna_variants/metadata/n_reads_mapped", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "441953973"}}, {"type": "dataset", "name": "n_reads_mapped_insert", "path": "assays/dna_variants/metadata/n_reads_mapped_insert", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "424876938"}}, {"type": "dataset", "name": "n_variants_per_cell", "path": "assays/dna_variants/metadata/n_variants_per_cell", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "282"}}, {"type": "dataset", "name": "panel_name", "path": "assays/dna_variants/metadata/panel_name", "preview": {"shape": [], "dtype": "|S7", "bytes": 7, "kind": "scalar", "value": "Myeloid"}}, {"type": "dataset", "name": "pipeline_version", "path": "assays/dna_variants/metadata/pipeline_version", "preview": {"shape": [], "dtype": "|S5", "bytes": 5, "kind": "scalar", "value": "2.0.2"}}, {"type": "dataset", "name": "sample_name", "path": "assays/dna_variants/metadata/sample_name", "preview": {"shape": [1, 1], "dtype": "|S9", "bytes": 9, "kind": "strings", "values": ["M1912braf"]}}]}, {"type": "group", "name": "ra", "path": "assays/dna_variants/ra", "children": [{"type": "dataset", "name": "barcode", "path": "assays/dna_variants/ra/barcode", "preview": {"shape": [7412], "dtype": "|S18", "bytes": 133416, "kind": "strings", "values": ["AACAACCTATATCCTCAG", "AACAACCTATCAGTGTTC", "AACAACTGGACACTAACG", "AACAACTGGAGCACCAGC", "AACAACTGGAGTTCAACC", "AACAACTGGCATAAGATC", "AACAACTGGCCGATCAGC", "AACAACTGGGCTACCGAG", "AACAACTGGGGTACGAGC", "AACAATGCACCTGTTAGC", "AACAATGCAGCGAAGCTC", "AACAATGCAGCGGAGATT", "AACAATGCAGTAAGGTCC", "AACAATGCATGCGTGCCA", "AACAATGCATTAACGGAG", "AACACACTCACTTAGCTT", "AACACACTCCAGTGCTGC", "AACACACTCCTAGTCGTC", "AACACACTCCTTCCGTGG", "AACACACTCGCGCTAGAA", "AACACACTCGTGCTGACT", "AACACACTCTACGAGTGA", "AACACACTCTCTTAAGTG", "AACAGATCGCGACCTAGC", "AACAGATCGGACCAACAG", "AACAGATCGTAGCTAAGA", "AACAGATCGTCCAAGTAA", "AACAGCAGTACTACCATC", "AACAGCAGTCAGCAGTAC", "AACAGCAGTCTCTGTCAA", "AACAGCAGTTACAAGAGG", "AACCATGGTATCGTAGTG", "AACCATGGTTTACAGTGT", "AACCGCTGAAGCCAGGAC", "AACCGCTGAATAAGTTCG", "AACCGCTGAATCAGAAGC", "AACCGCTGACACCAGAAG", "AACCGCTGACACGGAAGT", "AACCGCTGACGGAAGACG", "AACCGTGAGAGTCCAGTG", "AACCGTGAGCGATCCAGA", "AACCGTGAGTGGTAGCAG", "AACGAGAATACTGGTCAG", "AACGAGAATCTAACACTG", "AACGAGAATCTAGTGCTG", "AACGAGAATCTCATGCCA", "AACGAGAATTCAGTAAGC", "AACGAGGTGAGCGGTCTA", "AACGAGGTGCATGGTTAC", "AACGAGGTGCCTAAGTCT"]}}, {"type": "dataset", "name": "filtered", "path": "assays/dna_variants/ra/filtered", "preview": {"shape": [7412], "dtype": "uint8", "bytes": 7412, "kind": "1d", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}}, {"type": "dataset", "name": "sample_name", "path": "assays/dna_variants/ra/sample_name", "preview": {"shape": [7412], "dtype": "|S9", "bytes": 66708, "kind": "strings", "values": ["M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf"]}}]}]}, {"type": "group", "name": "protein_read_counts", "path": "assays/protein_read_counts", "children": [{"type": "group", "name": "ca", "path": "assays/protein_read_counts/ca", "children": [{"type": "dataset", "name": "antibody_id", "path": "assays/protein_read_counts/ca/antibody_id", "preview": {"shape": [46], "dtype": "|S38", "bytes": 1748, "kind": "strings", "values": ["0062 anti-human CD10", "0061 anti-human CD117 (c-kit)", "0161 anti-human CD11b", "0053 anti-human CD11c", "0064 anti-human CD123", "0364 anti-human CD13", "0055 anti-human CD138 (Syndecan-1)", "0081 anti-human CD14", "0163 anti-human CD141 (Thrombomodulin)", "0083 anti-human CD16", "0358 anti-human CD163", "0050 anti-human CD19", "0160 anti-human CD1c", "0367 anti-human CD2", "0393 anti-human CD22", "0085 anti-human CD25", "0034 anti-human CD3", "0028 anti-human CD30", "0370 anti-human CD303 (BDCA-2)", "0406 anti-human CD304 (Neuropilin-1)", "0052 anti-human CD33", "0054 anti-human CD34", "0389 anti-human CD38", "0072 anti-human CD4", "0073 anti-mouse/human CD44", "0048 anti-human CD45", "0063 anti-human CD45RA", "0087 anti-human CD45RO", "0576 anti-human CD49d", "0138 anti-human CD5", "0047 anti-human CD56 (NCAM)", "0147 anti-human CD62L", "0218 anti-human CD62P (P-Selectin)", "0162 anti-human CD64", "0146 anti-human CD69", "0066 anti-human CD7", "0394 anti-human CD71", "0046 anti-human CD8", "0359 anti-human CD83", "0060 anti-human CD90 (Thy1)", "0351 anti-human CD135 (Flt-3/Flk-2)", "0352 anti-human Fc&#949;RI&#945;", "0159 anti-human HLA-DR", "0090 Mouse IgG1", "0091 Mouse IgG2a", "0092 Mouse IgG2b"]}}, {"type": "dataset", "name": "antibody_sequence", "path": "assays/protein_read_counts/ca/antibody_sequence", "preview": {"shape": [46], "dtype": "|S15", "bytes": 690, "kind": "strings", "values": ["CAGCCATTCATTAGG", "AGACTAATAGCTGAC", "GACAAGTGATCTGCA", "TACGCCTATAACTTG", "CTTCACTCTGTCAGG", "TTTCAACGCCCTTTC", "ACTCTTTCGTTTACG", "TCTCAGACCTCCGTA", "GGATAACCGCGCTTT", "AAGTTCACTCTTTGC", "GCTTCTCCTTCCTTA", "CTGGGCAATTACTCG", "GAGCTACTTCACTCG", "TACGATTTGTCAGGG", "GGGTTGTTGTCTTTG", "TTTGTCCTGTACGCC", "CTCATTGTAACTCCT", "TCAGGGTGTGCTGTA", "GAGATGTCCGAATTT", "GGACTAAGTTTCGTT", "TAACTCAGGGCCTAT", "GCAGAAATCTCCCTT", "TGTACCCGCTTGTGA", "TGTTCCCGCTCAACT", "TGGCTTCAGGTCCTA", "TCCCTTGCGATTTAC", "TCAATCCTTCCGCTT", "CTCCGAATCATGTTG", "CCATTCAACTTCCGG", "CATTAACGGGATGCC", "TCCTTTCCTGATAGG", "GTCCCTGCAACTTGA", "CCTTCCGTATCCCTT", "AAGTATGCCCTACGA", "GTCTCTTGGCTTAAA", "TGGATTCCCGGACTT", "CCGTGTTCCTCATTA", "GCGCAACTTGATGAT", "CCACTCATTTCCGGT", "GCATTGTACGATTCA", "CAGTAGATGGAGCAT", "CTCGTTTCCGTATCG", "AATAGCGAGCAAGTA", "GCCGGACGACATTAA", "CTCCTACCTAAACTG", "ATATGTATCACGCGA"]}}, {"type": "dataset", "name": "id", "path": "assays/protein_read_counts/ca/id", "preview": {"shape": [46], "dtype": "|S16", "bytes": 736, "kind": "strings", "values": ["CD10", "CD117", "CD11b", "CD11c", "CD123", "CD13", "CD138", "CD14", "CD141", "CD16", "CD163", "CD19", "CD1c", "CD2", "CD22", "CD25", "CD3", "CD30", "CD303", "CD304", "CD33", "CD34", "CD38", "CD4", "CD44", "CD45", "CD45RA", "CD45RO", "CD49d", "CD5", "CD56", "CD62L", "CD62P", "CD64", "CD69", "CD7", "CD71", "CD8", "CD83", "CD90", "FLT3", "Fc&#949;RI&#945;", "HLA-DR", "IgG1", "IgG2a", "IgG2b"]}}]}, {"type": "group", "name": "layers", "path": "assays/protein_read_counts/layers", "children": [{"type": "dataset", "name": "read_counts", "path": "assays/protein_read_counts/layers/read_counts", "preview": {"shape": [7412, 46], "dtype": "int64", "bytes": 2727616, "kind": "2d", "rows_shown": 10, "cols_shown": 12, "data": [[108, 298, 181, 67, 248, 93, 203, 79, 1082, 133, 277, 18], [223, 388, 175, 21, 304, 192, 761, 65, 857, 141, 493, 53], [1, 3, 1, 19, 22, 0, 2, 10, 58, 12, 24, 0], [7, 21, 4, 0, 14, 2, 55, 25, 51, 3, 21, 1], [39, 37, 76, 100, 55, 18, 57, 25, 707, 67, 108, 14], [3, 1, 9, 1, 15, 8, 13, 0, 52, 1, 11, 19], [87, 34, 252, 36, 272, 309, 101, 484, 248, 115, 140, 3], [25, 66, 117, 19, 31, 28, 43, 28, 305, 45, 36, 1], [151, 271, 64, 2, 337, 226, 1415, 29, 685, 99, 547, 56], [1, 2, 0, 0, 4, 0, 1, 0, 22, 6, 13, 0]], "stats": {"min": 0.0, "max": 20433.0, "mean": 394.16521739130434, "median": 42.0}}}]}, {"type": "group", "name": "metadata", "path": "assays/protein_read_counts/metadata", "children": [{"type": "dataset", "name": "n_antibodies", "path": "assays/protein_read_counts/metadata/n_antibodies", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "46"}}, {"type": "dataset", "name": "n_bases_r1", "path": "assays/protein_read_counts/metadata/n_bases_r1", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "35832670350"}}, {"type": "dataset", "name": "n_bases_r1_q30", "path": "assays/protein_read_counts/metadata/n_bases_r1_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "32710789078"}}, {"type": "dataset", "name": "n_bases_r2", "path": "assays/protein_read_counts/metadata/n_bases_r2", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "35832670350"}}, {"type": "dataset", "name": "n_bases_r2_q30", "path": "assays/protein_read_counts/metadata/n_bases_r2_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "34397100445"}}, {"type": "dataset", "name": "n_candidate_barcodes", "path": "assays/protein_read_counts/metadata/n_candidate_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "261136"}}, {"type": "dataset", "name": "n_cell_barcode_bases", "path": "assays/protein_read_counts/metadata/n_cell_barcode_bases", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "12129741406"}}, {"type": "dataset", "name": "n_cell_barcode_bases_q30", "path": "assays/protein_read_counts/metadata/n_cell_barcode_bases_q30", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "11827670688"}}, {"type": "dataset", "name": "n_read_pairs", "path": "assays/protein_read_counts/metadata/n_read_pairs", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "238884469"}}, {"type": "dataset", "name": "n_read_pairs_after_candidate_barcode_filtering", "path": "assays/protein_read_counts/metadata/n_read_pairs_after_candidate_barcode_filtering", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "217672241"}}, {"type": "dataset", "name": "n_read_pairs_trimmed", "path": "assays/protein_read_counts/metadata/n_read_pairs_trimmed", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "238709301"}}, {"type": "dataset", "name": "n_read_pairs_valid_ab_barcodes", "path": "assays/protein_read_counts/metadata/n_read_pairs_valid_ab_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "220567995"}}, {"type": "dataset", "name": "n_read_pairs_valid_cell_barcodes", "path": "assays/protein_read_counts/metadata/n_read_pairs_valid_cell_barcodes", "preview": {"shape": [], "dtype": "int64", "bytes": 8, "kind": "scalar", "value": "232753601"}}, {"type": "dataset", "name": "panel_name", "path": "assays/protein_read_counts/metadata/panel_name", "preview": {"shape": [], "dtype": "|S29", "bytes": 29, "kind": "scalar", "value": "totalseq-d-heme-oncology_FLT3"}}, {"type": "dataset", "name": "pipeline_version", "path": "assays/protein_read_counts/metadata/pipeline_version", "preview": {"shape": [], "dtype": "|S5", "bytes": 5, "kind": "scalar", "value": "2.0.1"}}, {"type": "dataset", "name": "sample_name", "path": "assays/protein_read_counts/metadata/sample_name", "preview": {"shape": [1, 1], "dtype": "|S9", "bytes": 9, "kind": "strings", "values": ["M1912braf"]}}]}, {"type": "group", "name": "ra", "path": "assays/protein_read_counts/ra", "children": [{"type": "dataset", "name": "barcode", "path": "assays/protein_read_counts/ra/barcode", "preview": {"shape": [7412], "dtype": "|S18", "bytes": 133416, "kind": "strings", "values": ["AACAACCTATATCCTCAG", "AACAACCTATCAGTGTTC", "AACAACTGGACACTAACG", "AACAACTGGAGCACCAGC", "AACAACTGGAGTTCAACC", "AACAACTGGCATAAGATC", "AACAACTGGCCGATCAGC", "AACAACTGGGCTACCGAG", "AACAACTGGGGTACGAGC", "AACAATGCACCTGTTAGC", "AACAATGCAGCGAAGCTC", "AACAATGCAGCGGAGATT", "AACAATGCAGTAAGGTCC", "AACAATGCATGCGTGCCA", "AACAATGCATTAACGGAG", "AACACACTCACTTAGCTT", "AACACACTCCAGTGCTGC", "AACACACTCCTAGTCGTC", "AACACACTCCTTCCGTGG", "AACACACTCGCGCTAGAA", "AACACACTCGTGCTGACT", "AACACACTCTACGAGTGA", "AACACACTCTCTTAAGTG", "AACAGATCGCGACCTAGC", "AACAGATCGGACCAACAG", "AACAGATCGTAGCTAAGA", "AACAGATCGTCCAAGTAA", "AACAGCAGTACTACCATC", "AACAGCAGTCAGCAGTAC", "AACAGCAGTCTCTGTCAA", "AACAGCAGTTACAAGAGG", "AACCATGGTATCGTAGTG", "AACCATGGTTTACAGTGT", "AACCGCTGAAGCCAGGAC", "AACCGCTGAATAAGTTCG", "AACCGCTGAATCAGAAGC", "AACCGCTGACACCAGAAG", "AACCGCTGACACGGAAGT", "AACCGCTGACGGAAGACG", "AACCGTGAGAGTCCAGTG", "AACCGTGAGCGATCCAGA", "AACCGTGAGTGGTAGCAG", "AACGAGAATACTGGTCAG", "AACGAGAATCTAACACTG", "AACGAGAATCTAGTGCTG", "AACGAGAATCTCATGCCA", "AACGAGAATTCAGTAAGC", "AACGAGGTGAGCGGTCTA", "AACGAGGTGCATGGTTAC", "AACGAGGTGCCTAAGTCT"]}}, {"type": "dataset", "name": "sample_name", "path": "assays/protein_read_counts/ra/sample_name", "preview": {"shape": [7412], "dtype": "|S9", "bytes": 66708, "kind": "strings", "values": ["M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf", "M1912braf"]}}]}]}]}, {"type": "group", "name": "metadata", "path": "metadata", "children": [{"type": "dataset", "name": "date_created", "path": "metadata/date_created", "preview": {"shape": [], "dtype": "|S10", "bytes": 10, "kind": "scalar", "value": "2023-11-26"}}, {"type": "dataset", "name": "sdk_version", "path": "metadata/sdk_version", "preview": {"shape": [], "dtype": "|S5", "bytes": 5, "kind": "scalar", "value": "3.1.2"}}]}]};
+
+// ── Count nodes ───────────────────────────────────────────────────────────────
+let totalNodes = 0;
+function countNodes(n) { totalNodes++; if (n.children) n.children.forEach(countNodes); }
+countNodes(DATA);
+document.getElementById('fname').textContent = DATA.name;
+document.getElementById('node-count').textContent = totalNodes + ' nodes';
+
+// ── Build tree ────────────────────────────────────────────────────────────────
+function buildTree(node, container) {
+  const li = document.createElement('li');
+
+  const row = document.createElement('div');
+  row.className = 'node';
+  row.dataset.path = node.path;
+  row.dataset.name = node.name.toLowerCase();
+
+  const toggle = document.createElement('span');
+  toggle.className = 'toggle';
+
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = node.name;
+
+  if (node.type === 'group') {
+    toggle.textContent = '▶';
+    icon.textContent = '⬡';
+    icon.classList.add('grp');
+
+    const childUl = document.createElement('ul');
+    childUl.className = 'children collapsed';
+
+    row.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = !childUl.classList.contains('collapsed');
+      childUl.classList.toggle('collapsed', open);
+      toggle.classList.toggle('open', !open);
+      document.querySelectorAll('.node.active').forEach(n => n.classList.remove('active'));
+      row.classList.add('active');
+      showGroupPreview(node);
+    });
+
+    node.children.forEach(child => buildTree(child, childUl));
+    li.appendChild(row);
+    li.appendChild(childUl);
+
+  } else {
+    toggle.className = 'toggle leaf';
+    icon.textContent = '▪';
+    icon.classList.add('ds');
+
+    const p = node.preview;
+    if (p && p.shape && p.shape.length > 0) {
+      const sb = document.createElement('span');
+      sb.className = 'shape-badge';
+      sb.textContent = p.shape.join('×');
+      row.appendChild(toggle); row.appendChild(icon); row.appendChild(label); row.appendChild(sb);
+    }
+
+    row.addEventListener('click', e => {
+      e.stopPropagation();
+      document.querySelectorAll('.node.active').forEach(n => n.classList.remove('active'));
+      row.classList.add('active');
+      showDatasetPreview(node);
+    });
+
+    if (!row.children.length) {
+      row.appendChild(toggle); row.appendChild(icon); row.appendChild(label);
+    }
+    li.appendChild(row);
+    return container.appendChild(li);
+  }
+
+  row.insertBefore(toggle, row.firstChild);
+  row.insertBefore(icon,   toggle.nextSibling);
+  row.insertBefore(label,  icon.nextSibling);
+  container.appendChild(li);
+}
+
+const rootUl = document.createElement('ul');
+buildTree(DATA, rootUl);
+document.getElementById('tree').appendChild(rootUl);
+
+// auto-expand root
+const firstToggle = rootUl.querySelector('.toggle');
+const firstChildren = rootUl.querySelector('.children');
+if (firstToggle && firstChildren) {
+  firstChildren.classList.remove('collapsed');
+  firstToggle.classList.add('open');
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function filterTree(q) {
+  q = q.toLowerCase().trim();
+  document.querySelectorAll('.node').forEach(row => {
+    if (!q) { row.classList.remove('hidden'); return; }
+    const match = row.dataset.name && row.dataset.name.includes(q);
+    row.classList.toggle('hidden', !match);
+    if (match) {
+      // reveal parents
+      let p = row.parentElement;
+      while (p) {
+        if (p.classList && p.classList.contains('children')) p.classList.remove('collapsed');
+        if (p.classList && p.classList.contains('node')) p.classList.remove('hidden');
+        p = p.parentElement;
+      }
+    }
+  });
+}
+
+// ── Format helpers ────────────────────────────────────────────────────────────
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+function fmtNum(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'number') {
+    if (!isFinite(v)) return String(v);
+    return Math.abs(v) > 1e4 || (Math.abs(v) < 1e-3 && v !== 0)
+      ? v.toExponential(3) : v.toPrecision(5).replace(/\.?0+$/, '');
+  }
+  return String(v);
+}
+
+// ── Group preview ─────────────────────────────────────────────────────────────
+function showGroupPreview(node) {
+  const groups = node.children.filter(c => c.type === 'group').length;
+  const ds     = node.children.filter(c => c.type === 'dataset').length;
+  document.getElementById('preview').innerHTML = `
+    <div class="preview-header">
+      <h2>${node.name}</h2>
+      <div class="path">${node.path}</div>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="key">Type</div><div class="val">Group</div></div>
+      <div class="meta-card"><div class="key">Subgroups</div><div class="val">${groups}</div></div>
+      <div class="meta-card"><div class="key">Datasets</div><div class="val">${ds}</div></div>
+      <div class="meta-card"><div class="key">Total children</div><div class="val">${node.children.length}</div></div>
+    </div>
+    <div class="section-title">Children</div>
+    <div class="string-grid">${node.children.map(c =>
+      `<span class="str-chip" style="color:${c.type==='group'?'var(--grp)':'var(--ds)'}">
+        ${c.type==='group'?'⬡':'▪'} ${c.name}
+       </span>`).join('')}
+    </div>`;
+}
+
+// ── Dataset preview ───────────────────────────────────────────────────────────
+function showDatasetPreview(node) {
+  const p = node.preview;
+  let html = `
+    <div class="preview-header">
+      <h2>${node.name}</h2>
+      <div class="path">${node.path}</div>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="key">Shape</div><div class="val">${p.shape && p.shape.length ? p.shape.join(' × ') : 'scalar'}</div></div>
+      <div class="meta-card"><div class="key">dtype</div><div class="val">${p.dtype}</div></div>
+      <div class="meta-card"><div class="key">Size</div><div class="val">${fmtBytes(p.bytes)}</div></div>
+      <div class="meta-card"><div class="key">Kind</div><div class="val">${p.kind}</div></div>
+    </div>`;
+
+  if (p.kind === 'scalar') {
+    html += `<div class="section-title">Value</div>
+      <div class="str-chip" style="font-size:14px;color:var(--txt)">${p.value}</div>`;
+
+  } else if (p.kind === 'strings') {
+    html += `<div class="section-title">Values (first ${p.values.length})</div>
+      <div class="string-grid">${p.values.map(v =>
+        `<span class="str-chip">${v}</span>`).join('')}
+      </div>`;
+
+  } else if (p.kind === '1d') {
+    const nums = p.values.filter(v => typeof v === 'number' && isFinite(v));
+    const mn = nums.length ? Math.min(...nums) : 0;
+    const mx = nums.length ? Math.max(...nums) : 1;
+    const range = mx - mn || 1;
+    html += `<div class="section-title">Distribution preview (${p.values.length} samples)</div>
+      <div class="bar-wrap">${p.values.map(v => {
+        const h = Math.max(4, Math.round(((v - mn) / range) * 55));
+        return `<div class="bar-item" style="height:${h}px" title="${fmtNum(v)}"></div>`;
+      }).join('')}</div>`;
+    if (nums.length) {
+      const mean = nums.reduce((a,b)=>a+b,0)/nums.length;
+      html += `<div class="stats-row">
+        <div class="stat-pill"><span>min</span>${fmtNum(mn)}</div>
+        <div class="stat-pill"><span>max</span>${fmtNum(mx)}</div>
+        <div class="stat-pill"><span>mean</span>${fmtNum(mean)}</div>
+      </div>`;
+    }
+    html += `<div class="section-title">Raw values</div>
+      <div class="string-grid">${p.values.map(v =>
+        `<span class="str-chip" style="color:var(--txt)">${fmtNum(v)}</span>`).join('')}
+      </div>`;
+
+  } else if (p.kind === '2d' || p.kind === 'nd_slice') {
+    if (p.stats) {
+      html += `<div class="stats-row">
+        <div class="stat-pill"><span>min</span>${fmtNum(p.stats.min)}</div>
+        <div class="stat-pill"><span>max</span>${fmtNum(p.stats.max)}</div>
+        <div class="stat-pill"><span>mean</span>${fmtNum(p.stats.mean)}</div>
+        <div class="stat-pill"><span>median</span>${fmtNum(p.stats.median)}</div>
+      </div>`;
+    }
+    if (p.kind === 'nd_slice') {
+      html += `<div class="section-title">Slice at axes ${JSON.stringify(p.slice_axes)}</div>`;
+    } else {
+      html += `<div class="section-title">Preview — ${p.rows_shown} rows × ${p.cols_shown} cols shown</div>`;
+    }
+    const nCols = p.data[0].length;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>row</th>${Array.from({length:nCols},(_,i)=>`<th>col ${i}</th>`).join('')}</tr></thead>
+      <tbody>${p.data.map((row,ri)=>
+        `<tr><td>${ri}</td>${row.map(v=>`<td>${fmtNum(v)}</td>`).join('')}</tr>`
+      ).join('')}</tbody>
+    </table></div>`;
+    if (p.rows_shown) {
+      html += `<div class="truncate-note">Showing ${p.rows_shown} of ${p.shape[0]} rows, ${p.cols_shown} of ${p.shape[1]} cols — random sample</div>`;
+    }
+  }
+
+  document.getElementById('preview').innerHTML = html;
+}
+</script>
+</body>
+</html>
